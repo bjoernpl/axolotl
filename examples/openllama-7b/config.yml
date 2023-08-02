@@ -31,8 +31,8 @@ wandb_watch:
 wandb_run_id:
 wandb_log_model:
 output_dir: ./openllama7b_orca_alpaca_oasst_evolinstruct
-gradient_accumulation_steps: 64
-micro_batch_size: 1
+gradient_accumulation_steps: 16
+micro_batch_size: 4
 num_epochs: 3
 optimizer: adamw_bnb_8bit
 torchdistx_path:
@@ -44,7 +44,7 @@ bfloat16: true
 bf16: false
 fp16: false
 tf32: false
-gradient_checkpointing: false
+gradient_checkpointing: true
 early_stopping_patience:
 resume_from_checkpoint:
 local_rank:

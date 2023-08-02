@@ -31,8 +31,8 @@ wandb_watch:
 wandb_run_id:
 wandb_log_model:
 output_dir: ./openllama7b_orca_alpaca_oasst_evolinstruct
-gradient_accumulation_steps: 16
-micro_batch_size: 4
+gradient_accumulation_steps: 64
+micro_batch_size: 1
 num_epochs: 3
 optimizer: adamw_bnb_8bit
 torchdistx_path:
@@ -56,7 +56,7 @@ gptq_groupsize:
 gptq_model_v1:
 warmup_steps: 0
 eval_steps: 10
-save_steps: 100
+save_steps: 150
 debug:
 deepspeed:
 weight_decay: 0.1

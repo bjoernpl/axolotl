@@ -31,8 +31,8 @@ wandb_watch:
 wandb_run_id:
 wandb_log_model:
 output_dir: ./openllama7b_orca_alpaca_oasst_evolinstruct
-gradient_accumulation_steps: 32
-micro_batch_size: 2
+gradient_accumulation_steps: 8
+micro_batch_size: 8
 num_epochs: 3
 optimizer: adamw_bnb_8bit
 torchdistx_path:
@@ -51,7 +51,7 @@ local_rank:
 logging_steps: 1
 flash_optimum: false
 # use_bettertransformer: true
-flash_attention: true
+flash_attention: false
 gptq_groupsize:
 gptq_model_v1:
 warmup_steps: 0
@@ -71,5 +71,4 @@ special_tokens:
   bos_token: "<s>"
   eos_token: "</s>"
   unk_token: "<unk>"
-train_on_inputs: true
 

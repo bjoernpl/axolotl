@@ -10,6 +10,10 @@ datasets:
   - path: json
     data_files: ./orca_guanaco_de_mono.jsonl
     type: completion
+  - path: FreedomIntelligence/alpaca-gpt4-deutsch
+    type: sharegpt:chat
+  - path: FreedomIntelligence/evol-instruct-deutsch
+    type: sharegpt:chat
 dataset_prepared_path: last_run_prepared
 val_set_size: 0.02
 adapter:
@@ -26,14 +30,14 @@ wandb_project: finetuning
 wandb_watch:
 wandb_run_id:
 wandb_log_model:
-output_dir: ./openllama7b-out
-gradient_accumulation_steps: 1
-micro_batch_size: 1
+output_dir: ./openllama7b_orca_alpaca_oasst_evolinstruct
+gradient_accumulation_steps: 32
+micro_batch_size: 2
 num_epochs: 3
 optimizer: adamw_bnb_8bit
 torchdistx_path:
 lr_scheduler: cosine
-learning_rate: 0.00001
+learning_rate: 0.00002
 train_on_inputs: false
 group_by_length: false
 bfloat16: true
@@ -45,13 +49,14 @@ early_stopping_patience:
 resume_from_checkpoint:
 local_rank:
 logging_steps: 1
-flash_optimum: true
-flash_attention:
+flash_optimum: false
+# use_bettertransformer: true
+flash_attention: true
 gptq_groupsize:
 gptq_model_v1:
-warmup_steps: 10
-eval_steps: 50
-save_steps:
+warmup_steps: 0
+eval_steps: 10
+save_steps: 100
 debug:
 deepspeed:
 weight_decay: 0.1

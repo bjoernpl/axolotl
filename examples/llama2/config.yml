@@ -21,7 +21,9 @@ val_set_size: 0.02
 adapter:
 lora_model_dir:
 sequence_len: 8192
-max_packed_sequence_len: 8192
+sample_packing: true
+hub_model_id: bjoernp/llama-2-7b-de-instruct
+hf_use_auth_token: 
 lora_r:
 lora_alpha:
 lora_dropout:
@@ -42,10 +44,9 @@ lr_scheduler: cosine
 learning_rate: 0.00002
 train_on_inputs: false
 group_by_length: false
-bfloat16: true
-bf16: false
+bf16: true
 fp16: false
-tf32: false
+tf32: true
 gradient_checkpointing: true
 early_stopping_patience:
 resume_from_checkpoint: 

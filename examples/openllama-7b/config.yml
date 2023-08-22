@@ -1,5 +1,5 @@
-base_model: bjoernp/thorsten_v0.1
-base_model_config: bjoernp/thorsten_v0.1
+base_model: bjoernp/trampeltier_v0.1
+base_model_config: bjoernp/trampeltier_v0.1
 model_type: LlamaForCausalLM
 tokenizer_type: LlamaTokenizer
 load_in_8bit: false
@@ -7,9 +7,9 @@ load_in_4bit: false
 strict: false
 push_dataset_to_hub:
 datasets:
-  - path: json
-    data_files: ./orca_guanaco_de_mono.jsonl
-    type: completion
+#  - path: json
+#    data_files: ./orca_guanaco_de_mono.jsonl
+#    type: completion
   - path: FreedomIntelligence/alpaca-gpt4-deutsch
     type: sharegpt:chat
   - path: FreedomIntelligence/evol-instruct-deutsch
@@ -30,8 +30,8 @@ wandb_project: finetuning
 wandb_watch:
 wandb_run_id:
 wandb_log_model:
-output_dir: ./openllama7b_orca_alpaca_oasst_evolinstruct
-gradient_accumulation_steps: 64
+output_dir: ./openllama7b_alpaca_evolinstruct
+gradient_accumulation_steps: 8
 micro_batch_size: 1
 num_epochs: 3
 optimizer: adamw_bnb_8bit
@@ -46,7 +46,8 @@ fp16: false
 tf32: false
 gradient_checkpointing: true
 early_stopping_patience:
-resume_from_checkpoint:
+resume_from_checkpoint: 
+auto_resume_from_checkpoints: true
 local_rank:
 logging_steps: 1
 flash_optimum: false
@@ -55,8 +56,8 @@ flash_attention: false
 gptq_groupsize:
 gptq_model_v1:
 warmup_steps: 0
-eval_steps: 10
-save_steps: 150
+eval_steps: 250
+save_steps:
 debug:
 deepspeed:
 weight_decay: 0.1
@@ -71,4 +72,4 @@ special_tokens:
   bos_token: "<s>"
   eos_token: "</s>"
   unk_token: "<unk>"
-
+tokenizer_use_fast: false

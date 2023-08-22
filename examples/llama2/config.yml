@@ -1,0 +1,78 @@
+base_model: bjoernp/llama-2-7b-de
+base_model_config: bjoernp/llama-2-7b-de
+model_type: AutoModelForCausalLM
+tokenizer_type: LlamaTokenizer
+load_in_8bit: false
+load_in_4bit: false
+strict: false
+push_dataset_to_hub:
+datasets:
+#  - path: json
+#    data_files: ./orca_guanaco_de_mono.jsonl
+#    type: completion
+  - path: FreedomIntelligence/alpaca-gpt4-deutsch
+    type: sharegpt:chat
+  - path: FreedomIntelligence/evol-instruct-deutsch
+    type: sharegpt:chat
+  - path: FreedomIntelligence/sharegpt-deutsch
+    type: sharegpt:chat
+dataset_prepared_path: last_run_prepared
+val_set_size: 0.02
+adapter:
+lora_model_dir:
+sequence_len: 8192
+max_packed_sequence_len: 8192
+lora_r:
+lora_alpha:
+lora_dropout:
+lora_target_modules:
+lora_target_linear:
+lora_fan_in_fan_out:
+wandb_project: finetuning
+wandb_watch:
+wandb_run_id:
+wandb_log_model:
+output_dir: ./llamade2_alpaca_evolinstruct
+gradient_accumulation_steps: 1
+micro_batch_size: 8
+num_epochs: 3
+optimizer: adamw_bnb_8bit
+torchdistx_path:
+lr_scheduler: cosine
+learning_rate: 0.00002
+train_on_inputs: false
+group_by_length: false
+bfloat16: true
+bf16: false
+fp16: false
+tf32: false
+gradient_checkpointing: true
+early_stopping_patience:
+resume_from_checkpoint: 
+auto_resume_from_checkpoints: true
+local_rank:
+logging_steps: 1
+flash_optimum: false
+use_bettertransformer: true
+flash_attention: true
+gptq_groupsize:
+gptq_model_v1:
+warmup_steps: 0
+eval_steps: 250
+save_steps:
+debug:
+deepspeed:
+weight_decay: 0.1
+fsdp:
+  - full_shard
+  - auto_wrap
+fsdp_config:
+  fsdp_offload_params: true
+  fsdp_state_dict_type: FULL_STATE_DICT
+  fsdp_transformer_layer_cls_to_wrap: LlamaDecoderLayer
+special_tokens:
+  bos_token: "<s>"
+  eos_token: "</s>"
+  unk_token: "<unk>"
+tokenizer_use_fast: true
+trust_remote_code: true

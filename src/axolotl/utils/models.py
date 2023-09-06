@@ -4,33 +4,37 @@
 import logging
 import math
 import os
-from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Tuple  # noqa: F401
+from typing import Optional, Tuple  # noqa: F401
 
 import bitsandbytes as bnb
 import torch
 import transformers
 from optimum.bettertransformer import BetterTransformer
-from peft.tuners.lora import LoraLayer
+from peft import PeftConfig, prepare_model_for_kbit_training
 from transformers import (  # noqa: F401
     AutoConfig,
     AutoModelForCausalLM,
     AutoTokenizer,
     BitsAndBytesConfig,
+    GPTQConfig,
     LlamaConfig,
     PreTrainedModel,
     PreTrainedTokenizerBase,
 )
 
-from axolotl.prompt_tokenizers import LLAMA_DEFAULT_PAD_TOKEN
+from axolotl.prompt_tokenizers import LLAMA_DEFAULT_EOS_TOKEN
 from axolotl.utils.bench import log_gpu_memory_usage
+from axolotl.utils.dict import DictDefault
 
 LOG = logging.getLogger("axolotl")
 
-if TYPE_CHECKING:
-    from peft import PeftConfig  # noqa: F401
 
-    from axolotl.utils.dict import DictDefault  # noqa: F401
+def load_model_config(cfg):
+    model_config_name = cfg.base_model_config or cfg.base_model
+    trust_remote_code: bool = False or cfg.trust_remote_code
+    return AutoConfig.from_pretrained(
+        model_config_name, trust_remote_code=trust_remote_code
+    )
 
 
 def load_tokenizer(cfg):
@@ -55,11 +59,18 @@ def load_tokenizer(cfg):
         **tokenizer_kwargs,
     )
 
-    if tokenizer.__class__.__name__ in [
-        "LlamaTokenizer",
-        "LlamaTokenizerFast",
-    ]:
-        tokenizer.pad_token = LLAMA_DEFAULT_PAD_TOKEN
+    if (
+        tokenizer.__class__.__name__
+        in [
+            "LlamaTokenizer",
+            "LlamaTokenizerFast",
+            "CodeLlamaTokenizer",
+        ]
+        and hasattr(tokenizer, "pad_token")
+        and not tokenizer.pad_token
+    ):
+        # set a pad_token, but use eos_token so we don't add a new token
+        tokenizer.pad_token = LLAMA_DEFAULT_EOS_TOKEN
 
     LOG.debug(f"EOS: {tokenizer.eos_token_id} / {tokenizer.eos_token}")
     LOG.debug(f"BOS: {tokenizer.bos_token_id} / {tokenizer.bos_token}")
@@ -80,8 +91,10 @@ def load_tokenizer(cfg):
 
 
 def load_model(
-    cfg, tokenizer
-):  # type: (DictDefault, PreTrainedTokenizerBase) -> Tuple[PreTrainedModel, Optional[PeftConfig]]
+    cfg: DictDefault,
+    tokenizer: PreTrainedTokenizerBase,
+    inference: bool = False,
+) -> Tuple[PreTrainedModel, Optional[PeftConfig]]:
     """
     Load a model for a given configuration and tokenizer.
     """
@@ -91,14 +104,9 @@ def load_model(
 
     # TODO refactor as a kwarg
     load_in_8bit = cfg.load_in_8bit
-    cfg.is_llama_derived_model = (
-        "llama" in base_model
-        or (cfg.model_type and "llama" in cfg.model_type.lower())
-        or cfg.is_llama_derived_model
-    )
 
     if cfg.is_llama_derived_model and cfg.flash_attention:
-        if cfg.device not in ["mps", "cpu"] and not cfg.inference:
+        if cfg.device not in ["mps", "cpu"] and not inference:
             from axolotl.monkeypatch.llama_attn_hijack_flash import (
                 replace_llama_attn_with_flash_attn,
             )
@@ -140,39 +148,24 @@ def load_model(
     if (
         cfg.is_llama_derived_model
         and (cfg.max_packed_sequence_len or cfg.sample_packing)
-        and not cfg.inference
+        and not inference
     ):
         from axolotl.monkeypatch.llama_expand_mask import hijack_expand_mask
 
         LOG.info("patching _expand_mask")
         hijack_expand_mask()
 
-    try:
-        if cfg.gptq:
-            from alpaca_lora_4bit.monkeypatch.peft_tuners_lora_monkey_patch import (
-                replace_peft_model_with_int4_lora_model,
-            )
-
-            replace_peft_model_with_int4_lora_model()
-    except Exception as err:
-        LOG.exception(err)
-        raise err
-
-    if not cfg.gptq and (
-        (cfg.adapter == "lora" and load_in_8bit)
-        or (cfg.adapter == "qlora" and cfg.load_in_4bit)
-    ):
-        try:
-            from peft import prepare_model_for_kbit_training
-        except ImportError:
-            # For backward compatibility
-            from peft import (
-                prepare_model_for_int8_training as prepare_model_for_kbit_training,
-            )
-
     model_kwargs = {}
     if cfg.model_revision:
         model_kwargs["revision"] = cfg.model_revision
+    if cfg.gptq:
+        model_config = load_model_config(cfg)
+        if hasattr(model_config, "quantization_config"):
+            LOG.warning("model config does not contain quantization_config information")
+        else:
+            model_kwargs["quantization_config"] = GPTQConfig(
+                **model_config.quantization_config
+            )
     if cfg.adapter == "qlora" and cfg.load_in_4bit:
         model_kwargs["quantization_config"] = BitsAndBytesConfig(
             load_in_4bit=True,
@@ -183,45 +176,7 @@ def load_model(
             bnb_4bit_quant_type="nf4",
         )
     try:
-        if cfg.gptq and cfg.is_llama_derived_model:
-            from alpaca_lora_4bit.autograd_4bit import load_llama_model_4bit_low_ram
-            from huggingface_hub import snapshot_download
-
-            try:
-                snapshot_download_kwargs = {}
-                if cfg.base_model_ignore_patterns:
-                    snapshot_download_kwargs[
-                        "ignore_patterns"
-                    ] = cfg.base_model_ignore_patterns
-                cache_model_path = Path(
-                    snapshot_download(base_model, **snapshot_download_kwargs)
-                )
-                files = (
-                    list(cache_model_path.glob("*.pt"))
-                    + list(cache_model_path.glob("*.safetensors"))
-                    + list(cache_model_path.glob("*.bin"))
-                )
-                if len(files) > 0:
-                    model_path = str(files[0])
-                else:
-                    LOG.warning(
-                        "unable to find a cached model file, this will likely fail..."
-                    )
-                    model_path = str(cache_model_path)
-            except Exception:  # pylint: disable=broad-exception-caught
-                model_path = cfg.base_model
-            model, _ = load_llama_model_4bit_low_ram(
-                base_model_config if base_model_config else base_model,
-                model_path,
-                device_map=cfg.device_map,
-                half=cfg.fp16,
-                groupsize=cfg.gptq_groupsize if cfg.gptq_groupsize else -1,
-                is_v1_model=cfg.gptq_model_v1
-                if cfg.gptq_model_v1 is not None
-                else True,
-            )
-            load_in_8bit = False
-        elif cfg.is_llama_derived_model and not cfg.trust_remote_code:
+        if cfg.is_llama_derived_model and not cfg.trust_remote_code and not cfg.gptq:
             from transformers import LlamaForCausalLM
 
             config_kwargs = {}
@@ -267,15 +222,24 @@ def load_model(
         #     )
         #     model.train() # sets to train instead of eval mode
         elif model_type and not cfg.trust_remote_code:
-            model = getattr(transformers, model_type).from_pretrained(
-                base_model,
-                device_map=cfg.device_map,
-                load_in_8bit=cfg.load_in_8bit and cfg.adapter is not None,
-                load_in_4bit=cfg.load_in_4bit and cfg.adapter is not None,
-                torch_dtype=cfg.torch_dtype,
-                trust_remote_code=cfg.trust_remote_code or False,
-                **model_kwargs,
-            )
+            if cfg.gptq:
+                model = AutoModelForCausalLM.from_pretrained(
+                    base_model,
+                    device_map=cfg.device_map,
+                    torch_dtype=cfg.torch_dtype,
+                    trust_remote_code=cfg.trust_remote_code or False,
+                    **model_kwargs,
+                )
+            else:
+                model = getattr(transformers, model_type).from_pretrained(
+                    base_model,
+                    device_map=cfg.device_map,
+                    load_in_8bit=cfg.load_in_8bit and cfg.adapter is not None,
+                    load_in_4bit=cfg.load_in_4bit and cfg.adapter is not None,
+                    torch_dtype=cfg.torch_dtype,
+                    trust_remote_code=cfg.trust_remote_code or False,
+                    **model_kwargs,
+                )
         else:
             config = AutoConfig.from_pretrained(
                 base_model,
@@ -342,36 +306,46 @@ def load_model(
     if model.device.type == "cuda":
         log_gpu_memory_usage(LOG, "after model load", model.device)
 
-    if not cfg.gptq and (
-        (cfg.adapter == "lora" and load_in_8bit)
-        or (cfg.adapter == "qlora" and cfg.load_in_4bit)
+    # make sure these are fp32 per Ramesh et al. (2021)
+    for name, module in model.named_modules():
+        if "norm" in name:
+            module.to(torch.float32)
+        if "lm_head" in name or "embed_tokens" in name:
+            if hasattr(module, "weight"):
+                module.to(torch.float32)
+
+    needs_fa2_dtype = cfg.adapter or cfg.fsdp
+    if (cfg.adapter == "lora" and load_in_8bit) or (
+        cfg.adapter == "qlora" and cfg.load_in_4bit
     ):
         LOG.info("converting PEFT model w/ prepare_model_for_kbit_training")
+        if cfg.gradient_checkpointing:
+            model.gradient_checkpointing_enable()
         model = prepare_model_for_kbit_training(
             model, use_gradient_checkpointing=cfg.gradient_checkpointing
         )
+        needs_fa2_dtype = True
+
+    # LlamaRMSNorm layers are in fp32 after kbit_training or full finetune, so we need to
+    # convert them back to fp16/bf16 for flash-attn compatibility.
+    if needs_fa2_dtype or (cfg.flash_attention and cfg.is_llama_derived_model):
+        LOG.info("converting modules to %s for flash attention", cfg.torch_dtype)
+        for name, module in model.named_modules():
+            if "norm" in name:
+                module.to(cfg.torch_dtype)
+            if "lm_head" in name or "embed_tokens" in name:
+                if hasattr(module, "weight"):
+                    module.to(cfg.torch_dtype)
 
     model, lora_config = load_adapter(model, cfg, cfg.adapter)
 
     if cfg.ddp and not load_in_8bit:
         model.to(f"cuda:{cfg.local_rank}")
 
-    if cfg.gptq:
-        # Scales to half
-        LOG.info("Fitting 4bit scales and zeros to half")
-        for _, module in model.named_modules():
-            if "Autograd4bitQuantLinear" in str(type(module)) or "Linear4bitLt" in str(
-                type(module)
-            ):
-                if hasattr(module, "is_v1_model") and module.is_v1_model:
-                    module.zeros = module.zeros.half()
-                module.scales = module.scales.half()
-                module.bias = module.bias.half()
-
     if (
         torch.cuda.device_count() > 1
         and int(os.getenv("WORLD_SIZE", "1")) > 1
-        and (cfg.gptq or cfg.load_in_4bit)
+        and (cfg.load_in_4bit)
     ):
         # llama is PROBABLY model parallelizable, but the default isn't that it is
         # so let's only set it for the 4bit, see
@@ -397,15 +371,15 @@ def load_model(
     return model, lora_config
 
 
-def load_adapter(model, cfg, adapter):
-    # type: (PreTrainedModel, DictDefault, Optional[str]) -> Tuple[PreTrainedModel, Optional[PeftConfig]]
+def load_adapter(model, cfg, adapter, inference=False):
+    # type: (PreTrainedModel, DictDefault, Optional[str], bool) -> Tuple[PreTrainedModel, Optional[PeftConfig]]
 
     if adapter is None:
         return model, None
     if hasattr(model, "enable_input_require_grads"):
         model.enable_input_require_grads()
     if adapter in ["lora", "qlora"]:
-        return load_lora(model, cfg)
+        return load_lora(model, cfg, inference=inference)
     if adapter == "llama-adapter":
         return load_llama_adapter(model, cfg)
 
@@ -437,12 +411,8 @@ def load_llama_adapter(model, cfg):
     return model, peft_config
 
 
-def find_all_linear_names(bits, model):
-    cls = (
-        bnb.nn.Linear4bit
-        if bits == 4
-        else (bnb.nn.Linear8bitLt if bits == 8 else torch.nn.Linear)
-    )
+def find_all_linear_names(model):
+    cls = (bnb.nn.Linear4bit, bnb.nn.Linear8bitLt, torch.nn.Linear)
     lora_module_names = set()
     for name, module in model.named_modules():
         if isinstance(module, cls):
@@ -455,21 +425,15 @@ def find_all_linear_names(bits, model):
     return list(lora_module_names)
 
 
-def load_lora(model, cfg):
-    # type: (PreTrainedModel, DictDefault) -> Tuple[PreTrainedModel, Optional[PeftConfig]]
+def load_lora(model, cfg, inference=False):
+    # type: (PreTrainedModel, DictDefault, bool) -> Tuple[PreTrainedModel, Optional[PeftConfig]]
 
     from peft import LoraConfig, PeftModel, get_peft_model
 
     lora_target_modules = list(cfg.lora_target_modules or [])
 
     if cfg.lora_target_linear:
-        bits = None
-        if cfg.load_in_4bit:
-            bits = 4
-        elif cfg.load_in_8bit:
-            bits = 8
-
-        linear_names = find_all_linear_names(bits, model)
+        linear_names = find_all_linear_names(model)
         LOG.info(f"found linear modules: {repr(linear_names)}")
         lora_target_modules = list(set(lora_target_modules + linear_names))
 
@@ -489,26 +453,10 @@ def load_lora(model, cfg):
         model = PeftModel.from_pretrained(
             model,
             cfg.lora_model_dir,
-            is_trainable=not cfg.inference,
+            is_trainable=(not inference),
         )
     else:
         model = get_peft_model(model, lora_config)
-
-    for name, module in model.named_modules():
-        if isinstance(module, LoraLayer):
-            module = module.to(cfg.torch_dtype)
-        if "norm" in name:
-            module = module.to(torch.float32)
-        if "lm_head" in name or "embed_tokens" in name:
-            if hasattr(module, "weight"):
-                module = module.to(cfg.torch_dtype)
-
-    # LlamaRMSNorm layers are in fp32 after kbit_training, so we need to
-    # convert them back to fp16/bf16 for flash-attn compatibility.
-    if cfg.flash_attention and cfg.is_llama_derived_model:
-        for name, module in model.named_modules():
-            if "norm" in name:
-                module = module.to(cfg.torch_dtype)
 
     model.print_trainable_parameters()
 

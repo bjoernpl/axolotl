@@ -92,10 +92,7 @@ class LeoLMChatTokenizingStrategy(PromptTokenizingStrategy):
         # Tokenize conversations
         input_ids = self.tokenizer(
             conversation_str,
-            return_tensors="pt",
-            padding="max_length",
-            max_length=self.sequence_len,
-            truncation=True,
+            return_tensors="pt"
         ).input_ids[0]
         target = input_ids.clone()
 

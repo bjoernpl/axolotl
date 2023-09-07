@@ -13,6 +13,8 @@ from datasets import (
     concatenate_datasets,
     load_dataset,
     load_from_disk,
+    Sequence,
+    Value,
 )
 from huggingface_hub import hf_hub_download
 from transformers import PreTrainedTokenizerBase
@@ -338,6 +340,8 @@ def load_tokenized_prepared_datasets(
                     f"unhandled prompt tokenization strategy: {d.type} {suffix}"
                 )
         LOG.info("merging datasets")
+        for i in range(len(datasets)):
+            datasets[i] = datasets[i].cast_column("attention_mask", Sequence(Value("bool")))
         dataset = concatenate_datasets(datasets)
 
         if len(datasets) > 1:

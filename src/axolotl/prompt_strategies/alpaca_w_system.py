@@ -34,20 +34,12 @@ class InstructionWSystemPromptTokenizingStrategy(PromptTokenizingStrategy):
                     system,
                     instruction,
                     input,
+                    response,
                 )
             )
         )
-        tokenized_prompt = self._tokenize(user_prompt, add_eos_token=False)
-        if not self.train_on_inputs:
-            user_prompt_len = len(tokenized_prompt["input_ids"])
-            # TODO this could be sped up using numpy array slicing
-            tokenized_prompt["labels"] = [-100] * user_prompt_len
-        tokenized_res_prompt = self._tokenize(
-            response, strip_bos_token=True, add_eos_token=True
-        )
-        tokenized_prompt["input_ids"] += tokenized_res_prompt["input_ids"]
-        tokenized_prompt["attention_mask"] += tokenized_res_prompt["attention_mask"]
-        tokenized_prompt["labels"] += tokenized_res_prompt["input_ids"]
+        tokenized_prompt = self._tokenize(user_prompt)
+        
 
         return tokenized_prompt
 
@@ -75,14 +67,15 @@ class SystemDataPrompter(AlpacaPrompter):
         )
         if input:
             res = formatted_sys_prompt + self.turn_format.format(
-                instruction=instruction, input=input
+                instruction=instruction, input=input, output=output,
             )
         else:
             res = formatted_sys_prompt + self.turn_no_input_format.format(
-                instruction=instruction
+                instruction=instruction,
+                output=output,
             )
-        if output:
-            res = f"{res}{output}"
+        #if output:
+        #    res = f"{res}{output}"
         yield res
 
 

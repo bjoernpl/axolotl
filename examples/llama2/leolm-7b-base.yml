@@ -1,0 +1,98 @@
+base_model: LeoLM/leo-hessianai-7b
+base_model_config: LeoLM/leo-hessianai-7b
+model_type: AutoModelForCausalLM
+tokenizer_type: LlamaTokenizer
+load_in_8bit: false
+load_in_4bit: false
+strict: false
+push_dataset_to_hub:
+datasets:
+  - path: FreedomIntelligence/alpaca-gpt4-deutsch
+    type: leolm_chat.load_german
+  - path: FreedomIntelligence/evol-instruct-deutsch
+    type: leolm_chat.load_german
+  - path: "bjoernp/high_quality_oasst_de"
+    type: leolm_chat.load_german
+  - path: "LeoLM/OpenSchnabeltier"
+    type:
+      system_prompt: "Es folgt eine Unterhaltung zwischen einem neugierigen Benutzer und einem KI Assistenten. Der Assistent gibt hilfreiche, detaillierte und höfliche Antworten auf die Fragen des Benutzers."
+      field_instruction: instruction_de
+      field_output: output_de
+      system_format: "<|im_start|>system\n{system}<|im_end|>\n"
+      # 'format' can include {input}
+      format: |-
+        <|im_start|>user
+        {instruction}<|im_end|>
+        <|im_start|>assistant
+        {output}<|im_end|>
+        
+      # 'no_input_format' cannot include {input}
+      no_input_format: |-
+        <|im_start|>user
+        {instruction}<|im_end|>
+        <|im_start|>assistant
+        {output}<|im_end|>
+        
+dataset_prepared_path: chat_base_prepared
+val_set_size: 0.02
+adapter:
+lora_model_dir:
+sequence_len: 8192
+sample_packing: true
+hub_model_id: bjoernp/leolm-7b-chat-base
+hf_use_auth_token: 
+lora_r:
+lora_alpha:
+lora_dropout:
+lora_target_modules:
+lora_target_linear:
+lora_fan_in_fan_out:
+wandb_project: finetuning
+wandb_watch:
+wandb_run_id:
+wandb_log_model:
+output_dir: ./leolm-7b-chat-base
+gradient_accumulation_steps: 1
+micro_batch_size: 8
+num_epochs: 3
+optimizer: adamw_bnb_8bit
+torchdistx_path:
+lr_scheduler: cosine
+learning_rate: 0.00001
+train_on_inputs: true
+group_by_length: false
+bfloat16: true
+gradient_checkpointing: false
+early_stopping_patience:
+resume_from_checkpoint: 
+auto_resume_from_checkpoints: true
+local_rank:
+logging_steps: 1
+flash_optimum: false
+use_bettertransformer: false
+flash_attention: false
+gptq_groupsize:
+gptq_model_v1:
+warmup_steps: 100
+eval_steps: 0
+save_steps:
+debug: 
+weight_decay: 0.1
+special_tokens:
+  bos_token: "<s>"
+  eos_token: "</s>"
+  unk_token: "<unk>"
+tokens: "<|im_start|>,<|im_end|>"
+tokenizer_use_fast: true
+trust_remote_code: true
+rope_scaling:
+  type: linear
+  factor: 2.0
+resize_token_embeddings_to_32x: true
+fsdp:
+  - full_shard
+  - auto_wrap
+fsdp_config:
+  fsdp_offload_params: true
+  fsdp_state_dict_type: FULL_STATE_DICT
+  fsdp_transformer_layer_cls_to_wrap: LlamaDecoderLayer

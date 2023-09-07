@@ -19,6 +19,66 @@ class PromptStyle(Enum):
     CHATML = "chatml"
 
 
+class AlpacaDEEPrompter:
+    """
+    Base class for alpaca prompters
+    """
+
+    #system_prompt = "Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.\n\n"
+    system_no_input_prompt = "Es folgt eine Unterhaltung zwischen einem neugierigen Benutzer und einem KI Assistenten. Der Assistent gibt hilfreiche, detaillierte und höfliche Antworten auf die Fragen des Benutzers.\n\n"
+    system_format: str = "{system}"
+    turn_format: str
+    turn_no_input_format: str
+    prompt_style: Optional[PromptStyle] = None
+
+    def __init__(self, prompt_style=PromptStyle.INSTRUCT.value):
+        self.prompt_style = prompt_style if prompt_style else PromptStyle.INSTRUCT.value
+        self.match_prompt_style()
+
+    def match_prompt_style(self):
+        # pylint: disable=duplicate-code
+        if self.prompt_style == PromptStyle.INSTRUCT.value:
+            self.turn_format = "### Instruction:\n{instruction}\n\n### Input:\n{input}\n\n### Response:\n"
+            self.turn_no_input_format = (
+                "### Instruction:\n{instruction}\n\n### Response:\n"
+            )
+            self.system_format = "### System:\n{system}\n\n"
+        if self.prompt_style == PromptStyle.CHAT.value:
+            self.turn_format = "USER: {instruction}\n{input}\nASSISTANT:"
+            self.turn_no_input_format = "USER: {instruction}\nASSISTANT:"
+            self.system_format = "SYSTEM: {system}\n"
+        if self.prompt_style == PromptStyle.CHATML.value:
+            self.turn_format = "<|im_start|>user\n{instruction}\n{input}<|im_end|>\n<|im_start|>assistant\n"
+            self.turn_no_input_format = (
+                "<|im_start|>user\n{instruction}<|im_end|>\n<|im_start|>assistant\n"
+            )
+            self.system_format = "<|im_start|>system\n{system}<|im_end|>\n"
+
+    def build_prompt(
+        self,
+        instruction: str,
+        input: Union[None, str] = None,  # pylint: disable=redefined-builtin
+        output: Union[None, str] = None,
+    ) -> Generator[str, None, None]:
+        # returns the full prompt from instruction and optional input
+        # if a label (=response, =output) is provided, it's also appended.
+        if input:
+            res = (
+                self.system_format.format(system=self.system_prompt)
+                if self.system_prompt
+                else ""
+            ) + self.turn_format.format(instruction=instruction, input=input)
+        else:
+            res = (
+                self.system_format.format(system=self.system_no_input_prompt)
+                if self.system_prompt
+                else ""
+            ) + self.turn_no_input_format.format(instruction=instruction)
+        if output:
+            res = f"{res}{output}"
+        yield res
+
+
 class AlpacaPrompter:
     """
     Base class for alpaca prompters

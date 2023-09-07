@@ -39,6 +39,7 @@ adapter:
 lora_model_dir:
 sequence_len: 8192
 sample_packing: true
+pad_to_sequence_len: true
 hub_model_id: bjoernp/leolm-7b-chat-base
 hf_use_auth_token: 
 lora_r:
